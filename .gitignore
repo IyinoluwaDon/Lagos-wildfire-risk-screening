@@ -1,0 +1,14 @@
+# Generated data and outputs
+data/raw/*
+!data/raw/.gitkeep
+data/processed/*
+!data/processed/.gitkeep
+outputs/*
+!outputs/.gitkeep
+.venv/
+__pycache__/
+*.py[cod]
+
+presentation_build/
+.codex-finalizer/
+.streamlit/secrets.toml
