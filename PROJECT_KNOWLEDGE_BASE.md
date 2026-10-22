@@ -200,6 +200,14 @@ To refresh only the Lagos score/map and report from existing saved inputs and mo
 python refresh_outputs.py
 ```
 
+To browse the current saved results in the Streamlit dashboard, run:
+
+```powershell
+streamlit run app.py
+```
+
+The dashboard is read-only with respect to the analysis: it displays saved metrics, the map, explanation charts, fold results, artifact availability, and recent logs. It does not rerun the model or make API calls. Run `python run.py` separately to regenerate project outputs.
+
 The project has no required Earth Engine account, API token, or user-provided data file. Network access is needed on a first run when source data are absent. Package versions in `requirements.txt` use minimum version bounds rather than a fully locked environment, so exact bit-for-bit reproduction across future software releases is not guaranteed.
 
 ## 11. Project file guide
