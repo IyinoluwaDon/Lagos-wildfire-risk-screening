@@ -16,7 +16,7 @@ PROCESSED = ROOT / "data" / "processed"
 
 st.set_page_config(
     page_title="Lagos Wildfire Risk Screening",
-    page_icon="🌿",
+    page_icon=":material/eco:",
     layout="wide",
     initial_sidebar_state="expanded",
 )
