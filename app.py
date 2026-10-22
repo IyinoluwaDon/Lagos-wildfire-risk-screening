@@ -59,7 +59,7 @@ with st.sidebar:
     st.markdown("**Validation**  \n5 spatial folds · 2° blocks")
     st.markdown("---")
     st.caption("This dashboard reads saved project outputs. It does not run the model or fetch data.")
-    if st.button("Refresh saved outputs", use_container_width=True):
+    if st.button("Refresh saved outputs", width="stretch"):
         st.rerun()
 
 st.title("Lagos Wildfire Risk Screening")
@@ -87,35 +87,38 @@ with overview:
     c1.metric(
         "ROC AUC",
         format_metric(metrics.get("roc_auc_mean")),
-        f"fold SD {format_metric(metrics.get('roc_auc_sd'))}",
+        border=True,
         help="Mean ROC AUC across held-out spatial folds. Higher is better.",
     )
+    c1.caption(f"Fold SD {format_metric(metrics.get('roc_auc_sd'))}")
     c2.metric(
         "Average precision",
         format_metric(metrics.get("average_precision_mean")),
+        border=True,
         help="Precision-recall summary; compare with the positive rate below.",
     )
     c3.metric(
         "Brier score",
         format_metric(metrics.get("brier_mean")),
+        border=True,
         help="Mean squared probability error across folds. Lower is better.",
     )
-    c4.metric("Fire-positive rows", f"{metrics.get('positive_rate', 0):.1%}")
+    c4.metric("Fire-positive rows", f"{metrics.get('positive_rate', 0):.1%}", border=True)
 
     st.markdown("### Study at a glance")
     a, b, c = st.columns(3)
-    a.metric("Grid-month records", f"{metrics.get('records', 0):,}")
+    a.metric("Grid-month records", f"{metrics.get('records', 0):,}", border=True)
     a.caption("301 Nigeria land cells × 168 months")
-    b.metric("Spatial folds", str(metrics.get("folds", "—")))
+    b.metric("Spatial folds", str(metrics.get("folds", "—")), border=True)
     b.caption("Groups are 2° geographic blocks")
-    c.metric("Lagos display cells", str(len(risk_grid) if risk_grid is not None else 0))
+    c.metric("Lagos display cells", str(len(risk_grid) if risk_grid is not None else 0), border=True)
     c.caption("0.25° display centers; model trained at 0.5°")
 
     st.markdown("### Threshold summary")
     t1, t2, t3 = st.columns(3)
-    t1.metric("Precision at 0.50", format_metric(metrics.get("precision_at_0_5")))
-    t2.metric("Recall at 0.50", format_metric(metrics.get("recall_at_0_5")))
-    t3.metric("F1 at 0.50", format_metric(metrics.get("f1_at_0_5")))
+    t1.metric("Precision at 0.50", format_metric(metrics.get("precision_at_0_5")), border=True)
+    t2.metric("Recall at 0.50", format_metric(metrics.get("recall_at_0_5")), border=True)
+    t3.metric("F1 at 0.50", format_metric(metrics.get("f1_at_0_5")), border=True)
     st.caption(
         "These results describe satellite fire-proxy classification on spatially held-out "
         "Nigeria blocks. They do not measure local Lagos incident accuracy."
@@ -133,7 +136,11 @@ with map_tab:
     st.subheader("Historical Lagos screening map")
     map_path = OUTPUTS / "maps" / "lagos_wildfire_risk.png"
     if map_path.is_file():
-        st.image(str(map_path), width="stretch")
+        st.image(
+            str(map_path),
+            width="stretch",
+            alt="Lagos map of relative historical wildfire screening scores for three displayed cells.",
+        )
     else:
         st.info("The map is not available yet. Run the project pipeline to create it.")
 
@@ -152,7 +159,12 @@ with map_tab:
         if "Relative percentile" in shown:
             shown["Relative percentile"] = shown["Relative percentile"].map(lambda x: f"{x:.0f}")
         st.markdown("### Displayed cells")
-        st.dataframe(shown, hide_index=True, use_container_width=True)
+        st.dataframe(
+            shown,
+            hide_index=True,
+            width="stretch",
+            alt="Model scores and relative ranks for the three Lagos display cells.",
+        )
     st.caption(
         "Only three 0.25° cell centers fall inside the current Lagos polygon/grid alignment. "
         "Their values are spatially interpolated from a 0.5°-trained model. Percentiles are "
@@ -168,7 +180,13 @@ with explanation_tab:
         season_view = season_view.set_index("Month")[["risk_probability"]].rename(
             columns={"risk_probability": "Mean model score"}
         )
-        st.line_chart(season_view, y="Mean model score", x_label="Month", y_label="Mean model score")
+        st.line_chart(
+            season_view,
+            y="Mean model score",
+            x_label="Month",
+            y_label="Mean model score",
+            alt="Monthly model score profile, highest in January and lowest from May through October.",
+        )
     else:
         st.info("The saved seasonal profile is not available yet.")
 
@@ -178,8 +196,19 @@ with explanation_tab:
         imp_view = imp_view.set_index("feature")[["importance_mean"]].rename(
             columns={"importance_mean": "Mean permutation importance"}
         )
-        st.bar_chart(imp_view, x_label="Importance", y_label="Feature")
-        st.dataframe(importance.sort_values("importance_mean", ascending=False), hide_index=True, use_container_width=True)
+        st.bar_chart(
+            imp_view,
+            x_label="Mean permutation importance",
+            y_label="Feature",
+            horizontal=True,
+            alt="Exploratory feature importance is highest for month seasonality and rainfall.",
+        )
+        st.dataframe(
+            importance.sort_values("importance_mean", ascending=False),
+            hide_index=True,
+            width="stretch",
+            alt="Mean permutation importance and repeat variability for model features.",
+        )
     else:
         st.info("The saved importance table is not available yet.")
     st.info(
@@ -190,7 +219,12 @@ with explanation_tab:
 
     if folds is not None and not folds.empty:
         st.subheader("Fold-by-fold validation")
-        st.dataframe(folds, hide_index=True, use_container_width=True)
+        st.dataframe(
+            folds,
+            hide_index=True,
+            width="stretch",
+            alt="Validation metrics and record counts for each spatial fold.",
+        )
 
 with files_tab:
     st.subheader("Saved project artifacts")
@@ -214,7 +248,12 @@ with files_tab:
             for label, rel_path in artifact_rows
         ]
     )
-    st.dataframe(status, hide_index=True, use_container_width=True)
+    st.dataframe(
+        status,
+        hide_index=True,
+        width="stretch",
+        alt="Availability of saved project outputs and reports.",
+    )
 
     st.subheader("Recent pipeline log")
     log_path = OUTPUTS / "logs" / "pipeline.log"
