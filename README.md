@@ -17,9 +17,10 @@ No Earth Engine account or API token is required. First run downloads the public
 
 ## View the saved results
 
-Install dependencies as above, then launch the read-only dashboard from the project folder:
+Install the dashboard dependencies, then launch the read-only dashboard from the project folder:
 
 ```powershell
+python -m pip install -r requirements-dashboard.txt
 streamlit run app.py
 ```
 

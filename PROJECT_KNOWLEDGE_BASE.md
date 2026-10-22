@@ -203,6 +203,7 @@ python refresh_outputs.py
 To browse the current saved results in the Streamlit dashboard, run:
 
 ```powershell
+python -m pip install -r requirements-dashboard.txt
 streamlit run app.py
 ```
 
@@ -220,6 +221,7 @@ The project has no required Earth Engine account, API token, or user-provided da
 | `refresh_outputs.py` | Rebuilds Lagos outputs and report from existing cached features and saved model. |
 | `config.yaml` | Project area, grid resolution, data years, random seed, spatial block size, and fold count. |
 | `requirements.txt` | Python dependency minimums. |
+| `requirements-dashboard.txt` | Minimal dependencies for the read-only dashboard. |
 | `.streamlit/config.toml` | Dashboard theme and headless server setting. |
 | `data/raw/` | Downloaded Atlas archive, extracted monthly rasters, and state polygon file. |
 | `data/processed/` | Weather cache, model input table, Lagos grid scores, and monthly score profile. |
