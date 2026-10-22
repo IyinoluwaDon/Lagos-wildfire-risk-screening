@@ -1,6 +1,6 @@
 # Lagos Wildfire Risk Screening
 
-A reproducible geospatial ML capstone built from Proposal Project 3. It fuses historical fire ignitions and weather reanalysis, performs spatial validation, explains the fitted model, and produces a Lagos screening map, report, metrics, and saved estimator.
+It fuses historical fire ignitions and weather reanalysis, performs spatial validation, explains the fitted model, and produces a Lagos screening map, report, metrics, and saved estimator.
 
 ## One-command run
 
