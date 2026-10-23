@@ -1,63 +1,34 @@
-# Lagos Wildfire Risk Screening
+# Lagos Historical Fire-Proxy Screening
 
-It fuses historical fire ignitions and weather reanalysis, performs spatial validation, explains the fitted model, and produces a Lagos screening map, report, metrics, and saved estimator.
+A spatial screening dashboard that summarizes historical satellite fire detections and related saved analyses for Lagos. It is a retrospective proxy-risk exploration, not a live wildfire forecast or emergency alert.
 
-## One-command run
+## What is included
 
-1. Use Python 3.10 or newer.
-2. From the project folder:
+- Streamlit dashboard over saved spatial outputs
+- Data/output consistency validation
+- Documented study design, sources and interpretation limits
 
-   powershell
-   py -m venv .venv
-   .venv\Scripts\Activate.ps1
-   python -m pip install -r requirements.txt
-   python run.py
+## Run locally
 
-No Earth Engine account or API token is required. First run downloads the public Global Fire Atlas monthly archive (about 155 MB) and queries ERA5 via Open-Meteo. Weather is cached locally.
-
-## View the saved results
-
-Install the dashboard dependencies, then launch the read-only dashboard from the project folder:
-
-```powershell
+```sh
 python -m pip install -r requirements-dashboard.txt
 streamlit run app.py
 ```
 
-The dashboard displays saved validation metrics, the Lagos screening map, seasonal scores, predictor importance, fold results, artifact availability, and recent logs. It does not download data or rerun the model. Use `python run.py` to refresh the pipeline outputs.
+## Verify
 
-## Study design
+Use `python scripts/verify_outputs.py` to verify the saved confusion-matrix records, derived metrics and seasonal output consistency.
 
-- Presentation area: Lagos State.
-- Training region: Nigeria land grid. Weather features are assigned to the nearest of four ERA5 anchors.
-- Fire labels: Global Fire Atlas monthly fire-number rasters, aggregated from 0.25° to 0.5° cells, 2003–2016.
-- Weather: ERA5 daily temperature, rainfall, and wind summarized by month.
-- Validation: spatial GroupKFold using 2° blocks; neighbouring grid cells do not cross between training and test blocks.
-- Classifier: class-weighted Random Forest. Permutation importance and seasonal profiles support interpretation.
+## Repository map
 
-## Stored artifacts
+`app.py` serves the dashboard. `src/` and `scripts/` contain analysis and output checks. `reports/` and `presentation/` hold saved results. `VALIDATION.md` documents checks and assumptions.
 
-- data/raw: source archive and extracted GeoTIFFs.
-- data/processed: monthly weather cache, training table, Lagos grid, and seasonal profile.
-- outputs/maps: presentation-ready Lagos map.
-- outputs/figures: model explanation figure.
-- outputs/metrics.json and outputs/spatial_validation_folds.csv: validation results.
-- outputs/wildfire_model.joblib: serialized model.
-- outputs/logs/pipeline.log: run log.
-- reports/project_report.md and reports/presentation_outline.md: findings and presentation structure.
-- PROJECT_KNOWLEDGE_BASE.md: full project rationale, data, method, results, limitations, and guidance for future report/slide drafting.
-- presentation/Lagos_Wildfire_Risk_Screening.pptx: editable presentation deck; preview images are saved in outputs/presentation_previews.
+## Evidence and limitations
 
-## Sources and attribution
+The saved-output verifier checks 50,568 confusion-matrix records, derived metrics and twelve seasonal months. The dashboard renders from stored results.
 
-- Global Fire Atlas updated record: https://zenodo.org/records/14065246
-- Open-Meteo Historical Weather API (ERA5): https://open-meteo.com/en/docs/historical-weather-api
-- Nigeria state polygons (Gist): https://gist.github.com/segebee/ff4a2f75be560462c369
+Fire-proxy records can be affected by detection limits, cloud cover and location uncertainty. No local incident validation or independent temporal evaluation establishes predictive skill. The saved analysis is historical and is not an operational warning service.
 
-## How to interpret the map
+## License
 
-The map displays mean modelled historical fire-occurrence scores by coarse grid cell, ranked as percentiles within the Lagos display area. These are relative screening values, not calibrated probabilities of an incident, operational warnings, or property-level risk. Satellite-derived labels are proxies and need validation against local incident records.
-
-## Known limits
-
-The fitted label period is 2003–2016 and the modelling grid is 0.5 degrees. Use local records and newer satellite data to refresh it. The model is exploratory until locally validated.
+No repository license file is included. Unless the project owner adds a license, do not assume the code, data or model artifacts may be redistributed or reused. Verify third-party data and model terms separately.
