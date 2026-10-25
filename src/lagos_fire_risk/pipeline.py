@@ -1,6 +1,6 @@
 from __future__ import annotations
-import json, logging, math, re, sys, time, zipfile
-from collections import defaultdict
+import argparse, io, json, logging, math, re, sys, time, zipfile
+from collections import OrderedDict, defaultdict
 from pathlib import Path
 import joblib, matplotlib
 matplotlib.use('Agg')
@@ -20,7 +20,9 @@ YEARS=range(2003,2017)
 WEATHER_VARS='temperature_2m_mean,precipitation_sum,wind_speed_10m_max,relative_humidity_2m_mean'
 NGA_BOUNDS=(2.5,4.0,15.0,14.0)
 LAGOS_BOUNDS=(2.65,6.25,4.05,6.95)
-FEATURES=['latitude','longitude','month_sin','month_cos','temp_c','rain_mm','rain_lag_mm','wind_kmh','humidity','dryness','ndvi','evi','lst_day_c','lst_night_c']
+BASE_FEATURES=['latitude','longitude','month_sin','month_cos','temp_c','rain_mm','rain_lag_mm','wind_kmh','humidity','dryness']
+MODIS_FEATURES=['ndvi','evi','lst_day_c','lst_night_c']
+FEATURES=BASE_FEATURES+MODIS_FEATURES
 
 def setup_logging():
     for d in (RAW,PROCESSED,FIG,MAPS,LOGS): d.mkdir(parents=True,exist_ok=True)
@@ -39,39 +41,85 @@ def get(url,params=None,timeout=120,retries=4):
             if attempt+1==retries: raise
             time.sleep(2**attempt)
 
-def ensure_atlas(log):
-    archive=RAW/'global_fire_atlas_monthly.zip'
-    if not archive.exists() or archive.stat().st_size<1_000_000:
-        log.info('Downloading Global Fire Atlas monthly summaries from Zenodo.')
-        tmp=archive.with_suffix('.part')
-        with requests.get(ATLAS_URL,stream=True,timeout=120,headers={'User-Agent':'lagos-wildfire-risk-capstone/1.0'}) as r:
-            r.raise_for_status()
-            with tmp.open('wb') as f:
-                for chunk in r.iter_content(1024*1024):
-                    if chunk: f.write(chunk)
-        tmp.replace(archive)
-    if not zipfile.is_zipfile(archive): raise ValueError('Global Fire Atlas archive is not a valid zip.')
-    return archive
+class HTTPRangeReader:
+    """Seekable HTTP reader; ZipFile fetches only the archive ranges it needs."""
+    def __init__(self,url):
+        self.url=url; self.position=0; self.session=requests.Session(); self.block_size=1024*1024; self.cache=OrderedDict(); self.cache_limit=32
+        response=self.session.head(url,allow_redirects=True,timeout=60,headers={'User-Agent':'lagos-wildfire-risk-capstone/1.0 research'})
+        response.raise_for_status()
+        self.size=int(response.headers.get('Content-Length','0'))
+        if not self.size:
+            raise OSError('The Global Fire Atlas host did not provide the archive size needed for remote range reads.')
+        probe=self.session.get(url,headers={'Range':'bytes=0-0','User-Agent':'lagos-wildfire-risk-capstone/1.0 research'},timeout=60)
+        if probe.status_code!=206 or not probe.headers.get('Content-Range','').startswith('bytes 0-0/'):
+            raise OSError(f'The Global Fire Atlas host does not support partial reads (HTTP {probe.status_code}); refusing a full archive download.')
+        self.bytes_read=len(probe.content); self.requests=1
+        probe.close()
+    def seek(self,offset,whence=io.SEEK_SET):
+        if whence==io.SEEK_SET: position=offset
+        elif whence==io.SEEK_CUR: position=self.position+offset
+        elif whence==io.SEEK_END: position=self.size+offset
+        else: raise ValueError('Invalid seek mode.')
+        self.position=max(0,min(self.size,position)); return self.position
+    def tell(self): return self.position
+    def readable(self): return True
+    def seekable(self): return True
+    def _get_block(self,block_start):
+        if block_start in self.cache:
+            self.cache.move_to_end(block_start); return self.cache[block_start]
+        block_end=min(self.size,block_start+self.block_size)-1
+        response=self.session.get(self.url,headers={'Range':f'bytes={block_start}-{block_end}','User-Agent':'lagos-wildfire-risk-capstone/1.0 research'},timeout=120)
+        if response.status_code!=206:
+            raise OSError(f'Expected HTTP byte-range response 206, got {response.status_code}; refusing a full archive download.')
+        expected=f'bytes {block_start}-{block_end}/'
+        if not response.headers.get('Content-Range','').startswith(expected):
+            raise OSError(f'Unexpected HTTP Content-Range: {response.headers.get("Content-Range", "missing")}')
+        data=response.content
+        if len(data)!=block_end-block_start+1: raise OSError(f'Incomplete HTTP range response for bytes {block_start}-{block_end}.')
+        self.bytes_read+=len(data); self.requests+=1; self.cache[block_start]=data
+        if len(self.cache)>self.cache_limit: self.cache.popitem(last=False)
+        return data
+    def read(self,size=-1):
+        if size is None or size<0: size=self.size-self.position
+        size=min(size,self.size-self.position)
+        if size<=0: return b''
+        remaining=size; pieces=[]
+        while remaining:
+            block_start=(self.position//self.block_size)*self.block_size
+            block=self._get_block(block_start); within=self.position-block_start
+            take=min(remaining,len(block)-within)
+            if take<=0: break
+            pieces.append(block[within:within+take]); self.position+=take; remaining-=take
+        data=b''.join(pieces)
+        if len(data)!=size: raise OSError(f'Incomplete cached HTTP range read: expected {size} bytes, received {len(data)}.')
+        return data
+    def close(self): self.session.close()
 
-def atlas_month_rasters(archive):
+def atlas_month_rasters(log):
+    """Yield only the selected monthly fire-number TIFF members."""
+    archive=RAW/'global_fire_atlas_monthly.zip'
+    if archive.exists():
+        log.info('Using the existing local Global Fire Atlas archive and reading only selected monthly rasters.')
+        with zipfile.ZipFile(archive) as zf:
+            yield from _selected_atlas_members(zf,log)
+        return
+    reader=HTTPRangeReader(ATLAS_URL)
+    with zipfile.ZipFile(reader) as zf:
+        yield from _selected_atlas_members(zf,log)
+        log.info('Retrieved %s bytes in %s HTTP range requests from the Global Fire Atlas archive (archive size: %s bytes).',reader.bytes_read,reader.requests,reader.size)
+
+def _selected_atlas_members(zf,log):
     selected=[]
-    with zipfile.ZipFile(archive) as zf:
-        for name in zf.namelist():
-            if not name.lower().endswith('.tif') or 'fire_number' not in name.lower(): continue
-            m=re.search(r'_(20\d{2})(\d{2})\.tif$',name,re.I)
-            if not m: continue
-            year,month=int(m.group(1)),int(m.group(2))
-            if year not in YEARS: continue
-            selected.append((year,month,name))
-        if not selected: raise ValueError('No 2003–2016 fire_number monthly rasters found in the Atlas archive.')
-        extracted=RAW/'atlas_fire_number'; extracted.mkdir(exist_ok=True)
-        paths=[]
-        for year,month,name in sorted(selected):
-            dst=extracted/Path(name).name
-            if not dst.exists() or dst.stat().st_size==0:
-                with zf.open(name) as src,dst.open('wb') as out: out.write(src.read())
-            paths.append((year,month,dst))
-    return paths
+    for name in zf.namelist():
+        if not name.lower().endswith('.tif') or 'fire_number' not in name.lower(): continue
+        m=re.search(r'_(20\d{2})(\d{2})\.tif$',name,re.I)
+        if not m: continue
+        year,month=int(m.group(1)),int(m.group(2))
+        if year in YEARS: selected.append((year,month,name))
+    if len(selected)!=len(YEARS)*12:
+        raise ValueError(f'Expected {len(YEARS)*12} Global Fire Atlas monthly fire-number rasters, found {len(selected)}.')
+    log.info('Reading %s selected monthly rasters; each TIFF is opened in memory and only the Nigeria window is used.',len(selected))
+    for year,month,name in sorted(selected): yield year,month,zf.read(name)
 
 def load_state_polygons():
     path=RAW/'nigeria_state_polygons.json'
@@ -84,7 +132,7 @@ def load_state_polygons():
     return polygons
 
 def load_fire_grid(log):
-    files=atlas_month_rasters(ensure_atlas(log)); counts=defaultdict(float)
+    counts=defaultdict(float)
     polygons=load_state_polygons(); from shapely.ops import unary_union
     country=unary_union(list(polygons.values()))
     # Build the complete national 0.25-degree land grid first. Atlas nodata is zero, so zero must be represented as a negative label.
@@ -93,9 +141,8 @@ def load_fire_grid(log):
         for lon in np.arange(2.625,15.0,.25):
             if country.covers(Point(float(lon),float(lat))):
                 land_cells.add((round(float(lat),3),round(float(lon),3)))
-    for year,month,path in files:
-        log.info('Reading fire atlas %s',path.name)
-        with rasterio.open(path) as src:
+    for year,month,raster_bytes in atlas_month_rasters(log):
+        with rasterio.MemoryFile(raster_bytes) as mem, mem.open() as src:
             from rasterio.windows import from_bounds
             bounds=from_bounds(*NGA_BOUNDS,transform=src.transform).round_offsets().round_lengths()
             arr=src.read(1,window=bounds,masked=True); tr=src.window_transform(bounds)
@@ -138,7 +185,7 @@ def fetch_weather(fire,log):
     if not results: raise ValueError('Open-Meteo returned no weather data.')
     weather=pd.concat(results,ignore_index=True); weather.to_csv(path,index=False); return weather
 
-def build_features(fire,weather,log):
+def build_features(fire,weather,log,use_modis=True):
     # Match each cell to its nearest regional climate anchor using a latitude-adjusted longitude distance.
     anchors={'southwest':(5.75,3.5),'central':(8.5,6.5),'northwest':(11.5,6.5),'northeast':(12.5,11.5)}
     cell=fire[['latitude','longitude']].drop_duplicates().copy()
@@ -149,20 +196,27 @@ def build_features(fire,weather,log):
     df=df.merge(weather,on=['climate_zone','year','month'],how='left',validate='many_to_one')
     if df.temp_c.isna().mean()>.1: raise ValueError(f'Weather is missing for {df.temp_c.isna().mean():.1%} of records.')
     modis_path=PROCESSED/'modis_monthly.csv'
-    if not modis_path.exists():
+    global FEATURES
+    if use_modis and not modis_path.exists():
         raise FileNotFoundError(f'MODIS feature table not found at {modis_path}. Run `python -m src.lagos_fire_risk.modis_export --project YOUR_EARTH_ENGINE_PROJECT_ID`, download the Drive CSV, and save it at this path.')
-    modis=pd.read_csv(modis_path)
-    modis_required={'latitude','longitude','year','month','ndvi','evi','lst_day_c','lst_night_c'}
-    missing=modis_required-set(modis.columns)
-    if missing: raise ValueError(f'MODIS feature table is missing columns: {sorted(missing)}')
-    modis['latitude']=modis.latitude.round(3); modis['longitude']=modis.longitude.round(3)
-    modis['year']=modis.year.astype(int); modis['month']=modis.month.astype(int)
-    if modis.duplicated(['latitude','longitude','year','month']).any():
-        raise ValueError('MODIS table has duplicate grid-cell/year/month rows.')
-    df=df.merge(modis[list(modis_required)],on=['latitude','longitude','year','month'],how='left',validate='one_to_one')
-    missing_modis=df[list(modis_required-{'latitude','longitude','year','month'})].isna().any(axis=1)
-    if missing_modis.mean()>.1:
-        raise ValueError(f'MODIS predictors are incomplete for {missing_modis.mean():.1%} of fire records; re-export the complete 2003–2016 table.')
+    if use_modis:
+        modis=pd.read_csv(modis_path)
+        modis_required={'latitude','longitude','year','month','ndvi','evi','lst_day_c','lst_night_c'}
+        missing=modis_required-set(modis.columns)
+        if missing: raise ValueError(f'MODIS feature table is missing columns: {sorted(missing)}')
+        modis['latitude']=modis.latitude.round(3); modis['longitude']=modis.longitude.round(3)
+        modis['year']=modis.year.astype(int); modis['month']=modis.month.astype(int)
+        if modis.duplicated(['latitude','longitude','year','month']).any():
+            raise ValueError('MODIS table has duplicate grid-cell/year/month rows.')
+        df=df.merge(modis[list(modis_required)],on=['latitude','longitude','year','month'],how='left',validate='one_to_one')
+        missing_modis=df[list(modis_required-{'latitude','longitude','year','month'})].isna().any(axis=1)
+        if missing_modis.mean()>.1:
+            raise ValueError(f'MODIS predictors are incomplete for {missing_modis.mean():.1%} of fire records; re-export the complete 2003–2016 table.')
+        FEATURES=BASE_FEATURES+MODIS_FEATURES
+        log.info('Using MODIS vegetation and land-surface-temperature features.')
+    else:
+        FEATURES=BASE_FEATURES
+        log.warning('Training a real-data baseline without MODIS predictors; MODIS remains needed for the proposal-complete run.')
     df=df.sort_values(['latitude','longitude','year','month']).reset_index(drop=True)
     df['rain_lag_mm']=df.groupby(['latitude','longitude']).rain_mm.shift(1).fillna(df.rain_mm)
     df['month_sin']=np.sin(2*np.pi*df.month/12); df['month_cos']=np.cos(2*np.pi*df.month/12)
@@ -204,7 +258,7 @@ def spatial_cv(df,log,model_cfg=None):
     comparison=(fold_table.groupby('model',as_index=False).agg(roc_auc_mean=('roc_auc','mean'),roc_auc_sd=('roc_auc','std'),average_precision_mean=('average_precision','mean'),brier_mean=('brier','mean'),folds=('fold','count')))
     comparison.sort_values(['average_precision_mean','roc_auc_mean','brier_mean'],ascending=[False,False,True]).to_csv(OUT/'model_comparison.csv',index=False)
     best=sorted(model_results,key=lambda name:(-model_results[name]['average_precision_mean'],-model_results[name]['roc_auc_mean'],model_results[name]['brier_mean']))[0]
-    metrics={'validation':f'GroupKFold by {block_size:g}-degree spatial blocks','selection_metric':'mean spatial-fold average precision; ties by ROC AUC then Brier score','best_model':best,'models':model_results,**model_results[best]}
+    metrics={'validation':f'GroupKFold by {block_size:g}-degree spatial blocks','selection_metric':'mean spatial-fold average precision; ties by ROC AUC then Brier score','best_model':best,'models':model_results,'positive_rate':float(y.mean()),**model_results[best]}
     (OUT/'metrics.json').write_text(json.dumps(metrics,indent=2),encoding='utf-8')
     log.info('Spatial CV selected %s: ROC AUC %.3f, average precision %.3f, Brier %.3f.',best,metrics['roc_auc_mean'],metrics['average_precision_mean'],metrics['brier_mean'])
     return metrics
@@ -214,22 +268,46 @@ def fit_and_explain(df,metrics,log,model_cfg=None):
     model_cfg=model_cfg or {}; name=metrics['best_model']; model=_make_candidate(name,int(model_cfg.get('random_state',42)))
     weights=compute_sample_weight(class_weight='balanced',y=y)
     model.fit(X,y,sample_weight=weights)
-    joblib.dump({'model':model,'features':FEATURES,'algorithm':name,'training_scope':'Nigeria-wide monthly fire occurrence, 2003-2016 at native 0.25-degree Atlas cells','selection_metric':'spatial cross-validation average precision'},OUT/'wildfire_model.joblib')
-    import shap
     sample_size=min(int(model_cfg.get('shap_sample_size',1500)),len(X)); explain_x=X.sample(n=sample_size,random_state=int(model_cfg.get('random_state',42)))
     background=X.sample(n=min(100,len(X)),random_state=21)
-    explainer=shap.TreeExplainer(model,data=background,feature_perturbation='interventional',model_output='probability')
-    values=explainer.shap_values(explain_x,check_additivity=False)
-    if isinstance(values,list): values=values[-1]
-    values=np.asarray(values)
-    if values.ndim==3: values=values[:,:,1]
-    importance=pd.DataFrame({'feature':FEATURES,'mean_abs_shap':np.abs(values).mean(axis=0)})
-    importance.sort_values('mean_abs_shap',ascending=False).to_csv(OUT/'shap_feature_importance.csv',index=False)
+    y_explain=y.loc[explain_x.index]
+    try:
+        import shap
+        if isinstance(model,RandomForestClassifier):
+            explainer=shap.TreeExplainer(model,data=background,feature_perturbation='interventional',model_output='probability')
+            values=explainer.shap_values(explain_x,check_additivity=False)
+            if isinstance(values,list): values=values[-1]
+            values=np.asarray(values)
+            if values.ndim==3: values=values[:,:,1]
+            values=np.asarray(values)
+        else:
+            explainer=shap.Explainer(model.predict_proba,background,algorithm='permutation')
+            explanation=explainer(explain_x,max_evals=2*len(FEATURES)+1)
+            values=np.asarray(explanation.values)
+            if values.ndim==3: values=values[:,:,1]
+        importance=pd.DataFrame({'feature':FEATURES,'importance':np.abs(values).mean(axis=0),'importance_std':np.abs(values).std(axis=0)})
+        explanation_method='SHAP'
+    except Exception as exc:
+        from sklearn.inspection import permutation_importance
+        log.warning('SHAP could not explain %s (%s); computing held-sample permutation importance instead.',name,type(exc).__name__)
+        result=permutation_importance(model,explain_x,y_explain,n_repeats=3,random_state=int(model_cfg.get('random_state',42)),scoring='average_precision',n_jobs=-1)
+        importance=pd.DataFrame({'feature':FEATURES,'importance':result.importances_mean,'importance_std':result.importances_std})
+        explanation_method='Permutation importance (SHAP unavailable in this runtime)'
+    importance['method']=explanation_method
+    importance.sort_values('importance',ascending=False).to_csv(OUT/'feature_importance.csv',index=False)
     plt.figure(figsize=(10,7),dpi=180)
-    shap.summary_plot(values,explain_x,plot_type='bar',max_display=14,show=False)
-    plt.title(f'SHAP global feature importance — {name}',loc='left',weight='bold')
-    plt.tight_layout(); plt.savefig(FIG/'shap_summary.png',bbox_inches='tight',facecolor='white'); plt.close()
-    log.info('Selected %s from spatial cross-validation; leading SHAP features: %s',name,', '.join(importance.sort_values('mean_abs_shap',ascending=False).feature.head(4)))
+    plot_data=importance.sort_values('importance').tail(14)
+    plt.barh(plot_data.feature,plot_data.importance,color='#188b91',alpha=.9)
+    plt.xlabel('Mean absolute contribution' if explanation_method=='SHAP' else 'Average precision score decrease')
+    plt.title(f'{explanation_method} global feature importance — {name}',loc='left',weight='bold')
+    plt.tight_layout(); plt.savefig(FIG/'feature_importance.png',bbox_inches='tight',facecolor='white'); plt.close()
+    metrics['explanation_method']=explanation_method
+    metrics['features']=FEATURES
+    metrics['feature_set']='ERA5, MODIS, location, and seasonal features' if len(FEATURES)>len(BASE_FEATURES) else 'ERA5, location, and seasonal features'
+    metrics['positive_rate']=float(y.mean())
+    (OUT/'metrics.json').write_text(json.dumps(metrics,indent=2),encoding='utf-8')
+    joblib.dump({'model':model,'features':FEATURES,'algorithm':name,'training_scope':'Nigeria-wide monthly fire occurrence, 2003-2016 at native 0.25-degree Atlas cells','selection_metric':'spatial cross-validation average precision','explanation_method':explanation_method},OUT/'wildfire_model.joblib')
+    log.info('Selected %s from spatial cross-validation; leading predictors by %s: %s',name,explanation_method,', '.join(importance.sort_values('importance',ascending=False).feature.head(4)))
     return model
 
 def lagos_boundary():
@@ -252,7 +330,8 @@ def make_outputs(model,df,log):
     lagos_cells=cell_coords[[geom.covers(Point(float(row.longitude),float(row.latitude))) for row in cell_coords.itertuples()]]
     if lagos_cells.empty: raise ValueError('No native 0.25-degree training cell centers fall inside Lagos State.')
     local=df.merge(lagos_cells,on=['latitude','longitude'],how='inner',validate='many_to_one')
-    cell_monthly=local.groupby(['latitude','longitude','month'],as_index=False)[['temp_c','rain_mm','rain_lag_mm','wind_kmh','humidity','ndvi','evi','lst_day_c','lst_night_c']].mean()
+    monthly_features=[name for name in ['temp_c','rain_mm','rain_lag_mm','wind_kmh','humidity']+MODIS_FEATURES if name in local.columns]
+    cell_monthly=local.groupby(['latitude','longitude','month'],as_index=False)[monthly_features].mean()
     cell_monthly['month_sin']=np.sin(2*np.pi*cell_monthly.month/12); cell_monthly['month_cos']=np.cos(2*np.pi*cell_monthly.month/12)
     cell_monthly['dryness']=cell_monthly.temp_c/(1+cell_monthly.rain_lag_mm.clip(lower=0))
     base=cell_monthly.dropna(subset=FEATURES).copy()
@@ -282,14 +361,15 @@ def make_outputs(model,df,log):
     ax.set_xlim(LAGOS_BOUNDS[0],LAGOS_BOUNDS[2]); ax.set_ylim(LAGOS_BOUNDS[1],LAGOS_BOUNDS[3])
     ax.set_xlabel('Longitude (°E)'); ax.set_ylabel('Latitude (°N)')
     ax.set_title('Lagos Wildfire Risk Screening\nNative 0.25° fire grid · 2003–2016 baseline',loc='left',fontsize=15,weight='bold',pad=12)
-    ax.text(.01,-.14,'Cells are clipped to Lagos State. Colours rank the monthly mean model score within the displayed area.\nHistorical screening view from fire observations, MODIS vegetation/temperature, and ERA5 weather.',transform=ax.transAxes,fontsize=8,color='#52616f')
+    data_note='fire observations, MODIS vegetation/temperature, and ERA5 weather' if len(FEATURES)>len(BASE_FEATURES) else 'fire observations and ERA5 weather (MODIS features not included in this run)'
+    ax.text(.01,-.14,f'Cells are clipped to Lagos State. Colours rank the monthly mean model score within the displayed area.\nHistorical screening view from {data_note}.',transform=ax.transAxes,fontsize=8,color='#52616f')
     cb=fig.colorbar(ScalarMappable(norm=norm,cmap=cmap),ax=ax,shrink=.78,pad=.03); cb.set_label('Relative risk percentile')
     ax.grid(color='#9aa7b2',alpha=.22); fig.tight_layout()
     fig.savefig(MAPS/'lagos_wildfire_risk.png',bbox_inches='tight',facecolor='white'); plt.close(fig)
     fig,axes=plt.subplots(1,2,figsize=(13,5),dpi=180)
     axes[0].plot(seasonal.month,seasonal.risk_probability,color='#e66b32',marker='o',lw=2.4); axes[0].set_xticks(range(1,13)); axes[0].set_xlabel('Month'); axes[0].set_ylabel('Mean model score'); axes[0].set_title('Lagos seasonal profile',weight='bold'); axes[0].grid(alpha=.25)
-    shap_values=pd.read_csv(OUT/'shap_feature_importance.csv').sort_values('mean_abs_shap')
-    axes[1].barh(shap_values.feature,shap_values.mean_abs_shap,color='#188b91',alpha=.9); axes[1].set_title('Global SHAP importance',weight='bold'); axes[1].set_xlabel('Mean absolute SHAP value')
+    importance=pd.read_csv(OUT/'feature_importance.csv').sort_values('importance')
+    axes[1].barh(importance.feature,importance.importance,color='#188b91',alpha=.9); axes[1].set_title(importance.method.iloc[0]+' importance',weight='bold'); axes[1].set_xlabel('Mean absolute contribution' if importance.method.iloc[0]=='SHAP' else 'Average precision score decrease')
     fig.suptitle('Model explainability',x=.03,ha='left',fontsize=15,weight='bold'); fig.tight_layout(); fig.savefig(FIG/'model_explainability.png',bbox_inches='tight',facecolor='white'); plt.close(fig)
     seasonal.to_csv(PROCESSED/'lagos_seasonal_profile.csv',index=False)
     log.info('Saved %d native 0.25-degree Lagos model cells clipped to state boundary; boundary source: %s.',len(risk),boundary_source)
@@ -300,15 +380,15 @@ def write_report(metrics,df,risk,seasonal,boundary_source):
     sd=metrics['roc_auc_sd'] if metrics['roc_auc_sd'] is not None else 0
     lines=['# Lagos Wildfire Risk Screening','',
     '## Executive summary','',
-    'This project builds an interpretable spatial fire-occurrence screen clipped to Lagos State. It combines Global Fire Atlas fire observations with MODIS vegetation/thermal metrics and ERA5 reanalysis, trains on Nigeria-wide fire patterns, and evaluates generalisation by holding out spatial blocks.','',
+    ('This project builds an interpretable spatial fire-occurrence screen clipped to Lagos State. It combines Global Fire Atlas fire observations with MODIS vegetation/thermal metrics and ERA5 reanalysis, trains on Nigeria-wide fire patterns, and evaluates generalisation by holding out spatial blocks.' if len(FEATURES)>len(BASE_FEATURES) else 'This baseline uses Global Fire Atlas fire observations and ERA5 reanalysis, trains on Nigeria-wide fire patterns, and evaluates generalisation by holding out spatial blocks. MODIS vegetation and thermal predictors remain to be added for the proposal-complete run.'),'',
     '**The Lagos map shows relative historical screening scores, not a real-time warning or a calibrated probability of an incident.** Satellite fire records can miss small burns and may include thermal anomalies. Local incident validation is required before operational use.','',
     '## Study design','',
     f'- Presentation area: Lagos State with nearby peri-urban context; boundary source: {boundary_source}.',
     '- Training region: Nigeria land cells within approximately 2.5–15°E and 4–14°N; only map cells whose centers fall within Lagos State are displayed.',
     '- Fire labels: Global Fire Atlas monthly fire-number rasters (2003–2016) at the native 0.25° modelling grid.',
-    '- Predictors: Open-Meteo ERA5 temperature, precipitation, wind, and humidity plus monthly MODIS NDVI, EVI, daytime LST, and nighttime LST.',
+    ('- Predictors: Open-Meteo ERA5 weather plus monthly MODIS NDVI, EVI, and day/night LST.' if len(FEATURES)>len(BASE_FEATURES) else '- Predictors: Open-Meteo ERA5 weather; MODIS predictors were not included in this baseline run.'),
     '- Validation: GroupKFold spatial cross-validation by 2° blocks; all candidate models use the same held-out folds.',
-    f'- Selected model: {metrics["best_model"]}, chosen by mean spatial-fold average precision; SHAP summarizes its fitted feature contributions.','',
+    f'- Selected model: {metrics["best_model"]}, chosen by mean spatial-fold average precision; {metrics.get("explanation_method", "model explanation pending")} summarizes fitted feature contributions.','',
     '## Validation results','',
     f'- Training records: {len(df):,}; fire-positive grid-month prevalence: {df.fire.mean():.2%}.',
     f'- Spatial ROC AUC: {metrics["roc_auc_mean"]:.3f} (fold SD {sd:.3f}).',
@@ -333,10 +413,23 @@ def write_report(metrics,df,risk,seasonal,boundary_source):
     (ROOT/'reports'/'project_report.md').write_text('\n'.join(lines),encoding='utf-8')
 
 def main():
+    parser=argparse.ArgumentParser(description='Train and map the Lagos wildfire screening model.')
+    parser.add_argument('--without-modis',action='store_true',help='Train a real-data fire-and-weather baseline while MODIS Earth Engine features are unavailable.')
+    parser.add_argument('--resume-features',action='store_true',help='Reuse the saved training table and spatial-CV metrics; skip data retrieval and model comparison.')
+    args=parser.parse_args()
     log=setup_logging(); log.info('Starting Lagos wildfire risk screening.')
     cfg=yaml.safe_load((ROOT/'config.yaml').read_text(encoding='utf-8'))
-    fire=load_fire_grid(log); weather=fetch_weather(fire,log); df=build_features(fire,weather,log)
-    metrics=spatial_cv(df,log,cfg.get('model',{})); model=fit_and_explain(df,metrics,log,cfg.get('model',{})); risk,seasonal,boundary=make_outputs(model,df,log)
+    if args.resume_features:
+        if not args.without_modis: raise ValueError('--resume-features currently requires --without-modis so feature columns are explicit.')
+        global FEATURES
+        FEATURES=BASE_FEATURES
+        df=pd.read_csv(PROCESSED/'training_features.csv')
+        metrics=json.loads((OUT/'metrics.json').read_text(encoding='utf-8'))
+        log.info('Resuming with %s saved training rows and saved spatial-CV model selection.',f'{len(df):,}')
+    else:
+        fire=load_fire_grid(log); weather=fetch_weather(fire,log); df=build_features(fire,weather,log,use_modis=not args.without_modis)
+        metrics=spatial_cv(df,log,cfg.get('model',{}))
+    model=fit_and_explain(df,metrics,log,cfg.get('model',{})); risk,seasonal,boundary=make_outputs(model,df,log)
     write_report(metrics,df,risk,seasonal,boundary)
     log.info('Pipeline complete. Outputs are in %s.',OUT)
 

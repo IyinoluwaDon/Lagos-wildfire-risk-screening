@@ -47,7 +47,7 @@ def format_metric(value: float | None, digits: int = 3) -> str:
 metrics = read_json(OUTPUTS / "metrics.json")
 risk_grid = read_csv(PROCESSED / "lagos_risk_grid.csv")
 seasonal = read_csv(PROCESSED / "lagos_seasonal_profile.csv")
-importance = read_csv(OUTPUTS / "shap_feature_importance.csv")
+importance = read_csv(OUTPUTS / "feature_importance.csv")
 comparison = read_csv(OUTPUTS / "model_comparison.csv")
 folds = read_csv(OUTPUTS / "spatial_validation_folds.csv")
 
@@ -78,14 +78,14 @@ if metrics is None:
     st.code("python run.py", language="powershell")
     st.stop()
 
-if "best_model" not in metrics:
+if "features" not in metrics:
     st.warning(
-        "These saved metrics are from the earlier 0.5° ERA5-only Random Forest run. "
-        "Prepare data/processed/modis_monthly.csv and run python run.py to generate proposal-aligned results."
+        "These saved metrics predate the current feature-set metadata. "
+        "Run the model pipeline to regenerate the current saved results."
     )
 
 overview, map_tab, explanation_tab, files_tab = st.tabs(
-    ["Overview", "Lagos map", "Model comparison & SHAP", "Data & run log"]
+    ["Overview", "Lagos map", "Model comparison & importance", "Data & run log"]
 )
 
 with overview:
@@ -177,8 +177,9 @@ with map_tab:
             width="stretch",
             alt="Model scores and relative ranks for Lagos grid cells.",
         )
+    predictor_text = metrics.get("feature_set", "the saved model feature set")
     st.caption(
-        "Each score is based on the cell's monthly ERA5 and MODIS climatology and a model trained at the same 0.25° grid resolution. "
+        f"Each score uses {predictor_text} on the 0.25° model grid. "
         "Cell polygons are clipped to the Lagos State boundary; relative ranks are calculated over the displayed Lagos cells."
     )
 
@@ -201,28 +202,28 @@ with explanation_tab:
     else:
         st.info("The saved seasonal profile is not available yet.")
 
-    st.subheader("SHAP predictor contributions")
+    st.subheader("Model predictor importance")
     if importance is not None and not importance.empty:
-        imp_view = importance.sort_values("mean_abs_shap", ascending=True).tail(14).copy()
-        imp_view = imp_view.set_index("feature")[["mean_abs_shap"]].rename(
-            columns={"mean_abs_shap": "Mean absolute SHAP value"}
-        )
+        importance_method = str(importance["method"].iloc[0])
+        metric_label = "Mean absolute SHAP contribution" if importance_method == "SHAP" else "Average precision score decrease"
+        imp_view = importance.sort_values("importance", ascending=True).tail(14).copy()
+        imp_view = imp_view.set_index("feature")[["importance"]].rename(columns={"importance": metric_label})
         st.bar_chart(
             imp_view,
-            x_label="Mean absolute SHAP value",
+            x_label=metric_label,
             y_label="Feature",
             horizontal=True,
-            alt="Global SHAP feature contributions for the selected tree model.",
+            alt=f"{importance_method} feature importance for the selected model.",
         )
         st.dataframe(
-            importance.sort_values("mean_abs_shap", ascending=False),
+            importance.sort_values("importance", ascending=False),
             hide_index=True,
             width="stretch",
-            alt="Mean absolute SHAP values by feature.",
+            alt=f"{importance_method} feature importance by predictor.",
         )
     else:
         st.info("The saved importance table is not available yet.")
-    st.caption("SHAP explains how the selected fitted model uses its predictors. These contributions describe model behavior, not causal effects.")
+    st.caption(f"{importance_method if importance is not None and not importance.empty else 'Model importance'} describes fitted model behavior, not causal effects.")
 
     if folds is not None and not folds.empty:
         st.subheader("Fold-by-fold validation")
@@ -242,7 +243,7 @@ with files_tab:
         ("Validation metrics", "outputs/metrics.json"),
         ("Spatial validation folds", "outputs/spatial_validation_folds.csv"),
         ("Model comparison", "outputs/model_comparison.csv"),
-        ("SHAP feature importance", "outputs/shap_feature_importance.csv"),
+        ("Model feature importance", "outputs/feature_importance.csv"),
         ("Training features", "data/processed/training_features.csv"),
         ("Lagos grid scores", "data/processed/lagos_risk_grid.csv"),
         ("Lagos clipped grid GeoJSON", "data/processed/lagos_risk_grid.geojson"),

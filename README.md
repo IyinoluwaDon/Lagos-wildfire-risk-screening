@@ -1,6 +1,6 @@
 # Lagos Wildfire Risk Screening
 
-A geospatial machine-learning workflow that combines historical satellite fire observations, MODIS vegetation and land-surface temperature, and ERA5 weather. The model is trained across Nigeria to retain enough spatial and temporal fire examples; the reported screening cells and polygons are clipped to the Lagos State boundary.
+A geospatial machine-learning workflow for historical fire screening. The model is trained across Nigeria and its displayed grid cells are clipped to Lagos State. The current saved run is a real-data fire-and-weather baseline; the MODIS feature export is prepared for the full multi-source run.
 
 ## Data and model
 
@@ -9,14 +9,18 @@ A geospatial machine-learning workflow that combines historical satellite fire o
 - **Thermal conditions:** MODIS MOD11A2 monthly daytime and nighttime land-surface temperature.
 - **Weather:** ERA5 reanalysis through Open-Meteo, including temperature, rainfall, wind, and humidity.
 - **Model comparison:** Random Forest and HistGradientBoosting, evaluated on the same GroupKFold spatial folds.
-- **Selection and interpretation:** select by mean spatial-fold average precision (ties by ROC AUC, then Brier score); generate SHAP explanations for the selected tree model.
+- **Selection and interpretation:** select by mean spatial-fold average precision (ties by ROC AUC, then Brier score); explain the fitted model with SHAP when available, with permutation importance as a clearly labelled fallback.
 - **Lagos output:** predict monthly climatological scores for model cells whose centers fall inside Lagos, clip each cell polygon to the state boundary, and export the map, CSV, and GeoJSON.
 
-The previous saved metrics and presentation artifacts describe an earlier 0.5° ERA5-only Random Forest run. Regenerate them after preparing the new MODIS feature table to report the current pipeline's model comparison and results.
+### Current saved model run
+
+The current run uses 199,584 Nigeria grid-month records from Global Fire Atlas fire labels and ERA5 weather on the native 0.25° grid. Five-fold spatial validation selected HistGradientBoosting (ROC AUC 0.936, average precision 0.771, Brier score 0.097). The run generates the Lagos map, model, feature-importance chart, and report. Its predictors do not yet include MODIS; use the MODIS-enabled run below for the proposal's full feature set.
+
+Fire rasters can be read from the existing local archive. When that archive is absent, the pipeline reads only selected monthly TIFF members through HTTP byte ranges and opens them in memory; it does not save the full archive. ERA5 features are requested through Open-Meteo and cached as a small monthly table.
 
 ## Prepare MODIS inputs
 
-The MODIS export uses Google Earth Engine and requires an Earth Engine-enabled Google Cloud project. Authenticate once, start the table export, and download the completed CSV from Google Drive:
+The MODIS export uses Google Earth Engine and requires an authenticated Earth Engine-enabled Google Cloud project. Earth Engine calculates monthly summaries over the Nigeria grid; only the resulting feature table is exported, rather than the original satellite rasters.
 
 ```powershell
 earthengine authenticate
@@ -24,7 +28,7 @@ python -m pip install -r requirements.txt
 python -m src.lagos_fire_risk.modis_export --project YOUR_EARTH_ENGINE_PROJECT_ID
 ```
 
-Save the downloaded file as `data/processed/modis_monthly.csv`. It contains monthly cell-level mean NDVI, EVI, daytime LST, and nighttime LST for 2003–2016. The export masks lower-quality MODIS observations and uses a common 0.25° Nigeria land grid.
+Download the completed CSV from Google Drive to `data/processed/modis_monthly.csv`. It contains monthly cell-level mean NDVI, EVI, daytime LST, and nighttime LST for 2003–2016. The export masks lower-quality MODIS observations and uses a common 0.25° Nigeria land grid.
 
 ## Run the wildfire workflow
 
@@ -32,7 +36,15 @@ Save the downloaded file as `data/processed/modis_monthly.csv`. It contains mont
 python run.py
 ```
 
-The run retrieves Global Fire Atlas fire labels and ERA5 weather where needed, joins the MODIS features, compares the candidate models with spatially held-out 2° blocks, fits the selected model, computes SHAP values, and regenerates the Lagos outputs and report.
+After preparing the MODIS feature table, `python run.py` joins it to the fire and weather records, compares the candidate models on shared spatially held-out 2° blocks, fits the selected model, explains it, and regenerates the Lagos outputs and report.
+
+To train the current fire-and-weather baseline without MODIS, run:
+
+```powershell
+python run.py --without-modis
+```
+
+To reuse the saved training table and model comparison while regenerating the fitted model and maps, add `--resume-features`.
 
 ## Browse saved results
 
@@ -41,14 +53,14 @@ python -m pip install -r requirements-dashboard.txt
 streamlit run app.py
 ```
 
-The Streamlit app presents saved metrics, model comparisons, the Lagos boundary-clipped map, SHAP summaries, and reproducibility artifacts. It does not fetch data or train models.
+The Streamlit app presents saved metrics, model comparisons, the Lagos boundary-clipped map, model feature importance, and reproducibility artifacts. It does not fetch data or train models.
 
 ## Main files
 
-- `src/lagos_fire_risk/pipeline.py` — fire/weather ingestion, feature construction, model comparison, spatial validation, SHAP, and Lagos outputs.
+- `src/lagos_fire_risk/pipeline.py` — remote fire-archive reads, weather ingestion, feature construction, model comparison, spatial validation, explanations, and Lagos outputs.
 - `src/lagos_fire_risk/modis_export.py` — Earth Engine export for monthly MODIS vegetation and thermal features.
 - `config.yaml` — study bounds, time span, native grid size, spatial folds, candidate models, and SHAP sample size.
-- `PROJECT_KNOWLEDGE_BASE.md` — project methods, source provenance, prior saved results, and reporting guidance.
+- `PROJECT_KNOWLEDGE_BASE.md` — project methods, source provenance, current saved results, and reporting guidance.
 - `reports/project_report.md` — generated research summary, regenerated by `python run.py`.
 
 ## Data sources
