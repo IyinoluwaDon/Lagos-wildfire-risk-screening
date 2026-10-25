@@ -1,6 +1,6 @@
 # Lagos Wildfire Risk Screening
 
-A geospatial machine-learning workflow for historical fire screening. The model is trained across Nigeria and its displayed grid cells are clipped to Lagos State. The current saved run is a real-data fire-and-weather baseline; the MODIS feature export is prepared for the full multi-source run.
+A geospatial machine-learning workflow for historical fire screening. The model is trained across Nigeria using real satellite fire observations, ERA5 weather, and MODIS vegetation and thermal summaries; its displayed grid cells are clipped to Lagos State.
 
 ## Data and model
 
@@ -14,7 +14,7 @@ A geospatial machine-learning workflow for historical fire screening. The model 
 
 ### Current saved model run
 
-The current run uses 199,584 Nigeria grid-month records from Global Fire Atlas fire labels and ERA5 weather on the native 0.25° grid. Five-fold spatial validation selected HistGradientBoosting (ROC AUC 0.936, average precision 0.771, Brier score 0.097). The run generates the Lagos map, model, feature-importance chart, and report. Its predictors do not yet include MODIS; use the MODIS-enabled run below for the proposal's full feature set.
+The current saved run joins Global Fire Atlas monthly fire labels, ERA5 weather, and monthly MODIS NDVI, EVI, and day/night land-surface temperature. Quality-masked satellite observations with missing predictor values are excluded, leaving 191,976 Nigeria grid-month records on the native 0.25° grid. Five-fold spatial validation selected HistGradientBoosting (ROC AUC 0.944, average precision 0.809, Brier score 0.092). The run generates the Lagos map, fitted model, feature-importance chart, and report. The model is trained nationally; only the three native grid cells whose centers fall inside Lagos are mapped.
 
 Fire rasters can be read from the existing local archive. When that archive is absent, the pipeline reads only selected monthly TIFF members through HTTP byte ranges and opens them in memory; it does not save the full archive. ERA5 features are requested through Open-Meteo and cached as a small monthly table.
 

@@ -2,7 +2,7 @@
 
 ## Executive summary
 
-This baseline uses Global Fire Atlas fire observations and ERA5 reanalysis, trains on Nigeria-wide fire patterns, and evaluates generalisation by holding out spatial blocks. MODIS vegetation and thermal predictors remain to be added for the proposal-complete run.
+This project builds an interpretable spatial fire-occurrence screen clipped to Lagos State. It combines Global Fire Atlas fire observations with MODIS vegetation/thermal metrics and ERA5 reanalysis, trains on Nigeria-wide fire patterns, and evaluates generalisation by holding out spatial blocks.
 
 **The Lagos map shows relative historical screening scores, not a real-time warning or a calibrated probability of an incident.** Satellite fire records can miss small burns and may include thermal anomalies. Local incident validation is required before operational use.
 
@@ -11,16 +11,16 @@ This baseline uses Global Fire Atlas fire observations and ERA5 reanalysis, trai
 - Presentation area: Lagos State with nearby peri-urban context; boundary source: Nigeria state polygon from segebee/logbon72 gist.
 - Training region: Nigeria land cells within approximately 2.5–15°E and 4–14°N; only map cells whose centers fall within Lagos State are displayed.
 - Fire labels: Global Fire Atlas monthly fire-number rasters (2003–2016) at the native 0.25° modelling grid.
-- Predictors: Open-Meteo ERA5 weather; MODIS predictors were not included in this baseline run.
+- Predictors: Open-Meteo ERA5 weather plus monthly MODIS NDVI, EVI, and day/night LST.
 - Validation: GroupKFold spatial cross-validation by 2° blocks; all candidate models use the same held-out folds.
 - Selected model: HistGradientBoosting, chosen by mean spatial-fold average precision; Permutation importance (SHAP unavailable in this runtime) summarizes fitted feature contributions.
 
 ## Validation results
 
-- Training records: 199,584; fire-positive grid-month prevalence: 19.47%.
-- Spatial ROC AUC: 0.936 (fold SD 0.013).
-- Spatial average precision: 0.771; Brier score: 0.097.
-- At fixed threshold 0.50: precision 0.604, recall 0.858, F1 0.709.
+- Training records: 191,976; fire-positive grid-month prevalence: 19.42%.
+- Spatial ROC AUC: 0.944 (fold SD 0.013).
+- Spatial average precision: 0.809; Brier score: 0.092.
+- At fixed threshold 0.50: precision 0.613, recall 0.873, F1 0.721.
 - Read ROC AUC alongside average precision and Brier because fire months are rare; accuracy alone is not informative.
 
 ## Reading the Lagos map
@@ -31,25 +31,25 @@ The map ranks 3 native 0.25° model cells by mean model score over calendar mont
 
 | Month | Mean model probability |
 |---|---:|
-| Jan | 0.6324 |
-| Feb | 0.4191 |
-| Mar | 0.2120 |
-| Apr | 0.0538 |
-| May | 0.0008 |
+| Jan | 0.7880 |
+| Feb | 0.4144 |
+| Mar | 0.2061 |
+| Apr | 0.0430 |
+| May | 0.0007 |
 | Jun | 0.0002 |
-| Jul | 0.0004 |
-| Aug | 0.0011 |
-| Sep | 0.0019 |
-| Oct | 0.0019 |
-| Nov | 0.2160 |
-| Dec | 0.5237 |
+| Jul | 0.0005 |
+| Aug | 0.0015 |
+| Sep | 0.0025 |
+| Oct | 0.0049 |
+| Nov | 0.3433 |
+| Dec | 0.6986 |
 
 ## Model comparison
 
 | Candidate | Spatial ROC AUC | Average precision | Brier score |
 |---|---:|---:|---:|
-| RandomForest | 0.929 | 0.739 | 0.099 |
-| HistGradientBoosting | 0.936 | 0.771 | 0.097 |
+| RandomForest | 0.941 | 0.783 | 0.092 |
+| HistGradientBoosting | 0.944 | 0.809 | 0.092 |
 
 ## Sources
 

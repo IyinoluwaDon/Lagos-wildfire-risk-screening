@@ -139,7 +139,7 @@ with overview:
     with st.expander("How to read the validation metrics"):
         st.markdown(
             "- **ROC AUC** measures ranking quality across thresholds.\n"
-            "- **Average precision** summarizes the precision-recall curve; the baseline positive rate is shown above.\n"
+            "- **Average precision** summarizes the precision-recall curve; the training positive rate is shown above.\n"
             "- **Brier score** measures squared probability error; smaller values are better.\n"
             "- Precision, recall, and F1 use a fixed 0.50 threshold and pooled out-of-fold predictions."
         )
