@@ -1,5 +1,7 @@
 # Presentation Outline
 
+> This outline and the existing slide deck describe the earlier ERA5-only Random Forest baseline. Regenerate the presentation artifacts after exporting the MODIS monthly table and running the current 0.25° model comparison pipeline.
+
 ## Slide 1 — Lagos Wildfire Risk Screening
 SIWES geospatial ML capstone. Identify where historical fire regimes and climate indicate higher vegetation-fire potential around Lagos.
 

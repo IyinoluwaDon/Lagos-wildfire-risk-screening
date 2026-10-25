@@ -1,5 +1,7 @@
 # Lagos Wildfire Risk Screening
 
+> These saved results describe the earlier 0.5° ERA5-only Random Forest baseline. The current source pipeline adds monthly MODIS NDVI/EVI/LST features, compares Random Forest with HistGradientBoosting, uses the native 0.25° fire grid, and clips output cells to Lagos. Run the MODIS export and `python run.py` to regenerate this report with current results.
+
 ## Executive summary
 
 This project builds an interpretable spatial fire-occurrence screen for Lagos State and its peri-urban edge. It combines Global Fire Atlas ignition counts with ERA5 reanalysis, trains on Nigeria-wide fire patterns, and evaluates generalisation by holding out spatial blocks.

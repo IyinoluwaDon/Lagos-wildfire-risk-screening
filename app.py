@@ -47,7 +47,8 @@ def format_metric(value: float | None, digits: int = 3) -> str:
 metrics = read_json(OUTPUTS / "metrics.json")
 risk_grid = read_csv(PROCESSED / "lagos_risk_grid.csv")
 seasonal = read_csv(PROCESSED / "lagos_seasonal_profile.csv")
-importance = read_csv(OUTPUTS / "feature_importance.csv")
+importance = read_csv(OUTPUTS / "shap_feature_importance.csv")
+comparison = read_csv(OUTPUTS / "model_comparison.csv")
 folds = read_csv(OUTPUTS / "spatial_validation_folds.csv")
 
 with st.sidebar:
@@ -55,7 +56,7 @@ with st.sidebar:
     st.caption("Lagos Wildfire Risk Screening")
     st.markdown("---")
     st.markdown("**Study period**  \n2003–2016")
-    st.markdown("**Training grid**  \n0.5° across Nigeria")
+    st.markdown("**Training grid**  \n0.25° across Nigeria")
     st.markdown("**Validation**  \n5 spatial folds · 2° blocks")
     st.markdown("---")
     st.caption("This dashboard reads saved project outputs. It does not run the model or fetch data.")
@@ -77,12 +78,19 @@ if metrics is None:
     st.code("python run.py", language="powershell")
     st.stop()
 
+if "best_model" not in metrics:
+    st.warning(
+        "These saved metrics are from the earlier 0.5° ERA5-only Random Forest run. "
+        "Prepare data/processed/modis_monthly.csv and run python run.py to generate proposal-aligned results."
+    )
+
 overview, map_tab, explanation_tab, files_tab = st.tabs(
-    ["Overview", "Lagos map", "Model explanation", "Data & run log"]
+    ["Overview", "Lagos map", "Model comparison & SHAP", "Data & run log"]
 )
 
 with overview:
     st.subheader("Spatial validation")
+    st.markdown(f"**Selected model:** {metrics.get('best_model', 'Earlier Random Forest baseline')}")
     c1, c2, c3, c4 = st.columns(4)
     c1.metric(
         "ROC AUC",
@@ -108,11 +116,15 @@ with overview:
     st.markdown("### Study at a glance")
     a, b, c = st.columns(3)
     a.metric("Grid-month records", f"{metrics.get('records', 0):,}", border=True)
-    a.caption("301 Nigeria land cells × 168 months")
+    a.caption("Out-of-fold grid-month records")
     b.metric("Spatial folds", str(metrics.get("folds", "—")), border=True)
     b.caption("Groups are 2° geographic blocks")
     c.metric("Lagos display cells", str(len(risk_grid) if risk_grid is not None else 0), border=True)
-    c.caption("0.25° display centers; model trained at 0.5°")
+    c.caption("Native 0.25° model cells, clipped to Lagos State")
+
+    if comparison is not None and not comparison.empty:
+        st.markdown("### Candidate model comparison")
+        st.dataframe(comparison, hide_index=True, width="stretch")
 
     st.markdown("### Threshold summary")
     t1, t2, t3 = st.columns(3)
@@ -139,7 +151,7 @@ with map_tab:
         st.image(
             str(map_path),
             width="stretch",
-            alt="Lagos map of relative historical wildfire screening scores for three displayed cells.",
+            alt="Lagos map of historical wildfire screening scores for model cells clipped to the state boundary.",
         )
     else:
         st.info("The map is not available yet. Run the project pipeline to create it.")
@@ -151,7 +163,7 @@ with map_tab:
                 "longitude": "Longitude",
                 "risk_probability": "Mean model score",
                 "relative_risk_percentile": "Relative percentile",
-                "display_resolution_degrees": "Display grid (degrees)",
+                "grid_resolution_degrees": "Model grid (degrees)",
             }
         ).copy()
         if "Mean model score" in shown:
@@ -163,12 +175,11 @@ with map_tab:
             shown,
             hide_index=True,
             width="stretch",
-            alt="Model scores and relative ranks for the three Lagos display cells.",
+            alt="Model scores and relative ranks for Lagos grid cells.",
         )
     st.caption(
-        "Only three 0.25° cell centers fall inside the current Lagos polygon/grid alignment. "
-        "Their values are spatially interpolated from a 0.5°-trained model. Percentiles are "
-        "relative to these displayed cells and are not calibrated probabilities."
+        "Each score is based on the cell's monthly ERA5 and MODIS climatology and a model trained at the same 0.25° grid resolution. "
+        "Cell polygons are clipped to the Lagos State boundary; relative ranks are calculated over the displayed Lagos cells."
     )
 
 with explanation_tab:
@@ -185,37 +196,33 @@ with explanation_tab:
             y="Mean model score",
             x_label="Month",
             y_label="Mean model score",
-            alt="Monthly model score profile, highest in January and lowest from May through October.",
+            alt="Monthly average model score across Lagos grid cells.",
         )
     else:
         st.info("The saved seasonal profile is not available yet.")
 
-    st.subheader("Predictor importance")
+    st.subheader("SHAP predictor contributions")
     if importance is not None and not importance.empty:
-        imp_view = importance.sort_values("importance_mean", ascending=True).tail(9).copy()
-        imp_view = imp_view.set_index("feature")[["importance_mean"]].rename(
-            columns={"importance_mean": "Mean permutation importance"}
+        imp_view = importance.sort_values("mean_abs_shap", ascending=True).tail(14).copy()
+        imp_view = imp_view.set_index("feature")[["mean_abs_shap"]].rename(
+            columns={"mean_abs_shap": "Mean absolute SHAP value"}
         )
         st.bar_chart(
             imp_view,
-            x_label="Mean permutation importance",
+            x_label="Mean absolute SHAP value",
             y_label="Feature",
             horizontal=True,
-            alt="Exploratory feature importance is highest for month seasonality and rainfall.",
+            alt="Global SHAP feature contributions for the selected tree model.",
         )
         st.dataframe(
-            importance.sort_values("importance_mean", ascending=False),
+            importance.sort_values("mean_abs_shap", ascending=False),
             hide_index=True,
             width="stretch",
-            alt="Mean permutation importance and repeat variability for model features.",
+            alt="Mean absolute SHAP values by feature.",
         )
     else:
         st.info("The saved importance table is not available yet.")
-    st.info(
-        "Interpretation caveat: the saved importance block was included when the final model "
-        "was fitted. Treat these values as exploratory diagnostics, not independent validation "
-        "or causal evidence."
-    )
+    st.caption("SHAP explains how the selected fitted model uses its predictors. These contributions describe model behavior, not causal effects.")
 
     if folds is not None and not folds.empty:
         st.subheader("Fold-by-fold validation")
@@ -234,9 +241,12 @@ with files_tab:
         ("Saved estimator", "outputs/wildfire_model.joblib"),
         ("Validation metrics", "outputs/metrics.json"),
         ("Spatial validation folds", "outputs/spatial_validation_folds.csv"),
-        ("Feature importance", "outputs/feature_importance.csv"),
+        ("Model comparison", "outputs/model_comparison.csv"),
+        ("SHAP feature importance", "outputs/shap_feature_importance.csv"),
         ("Training features", "data/processed/training_features.csv"),
         ("Lagos grid scores", "data/processed/lagos_risk_grid.csv"),
+        ("Lagos clipped grid GeoJSON", "data/processed/lagos_risk_grid.geojson"),
+        ("MODIS monthly feature export", "data/processed/modis_monthly.csv"),
         ("Seasonal profile", "data/processed/lagos_seasonal_profile.csv"),
         ("Presentation", "presentation/Lagos_Wildfire_Risk_Screening.pptx"),
         ("Project knowledge base", "PROJECT_KNOWLEDGE_BASE.md"),
@@ -270,6 +280,8 @@ with files_tab:
     st.markdown(
         "- [Global Fire Atlas](https://zenodo.org/records/14065246) · monthly fire-number rasters, 2003–2016\n"
         "- [Open-Meteo Historical Weather API](https://open-meteo.com/en/docs/historical-weather-api) · ERA5 reanalysis\n"
+        "- [MODIS MOD13Q1](https://developers.google.com/earth-engine/datasets/catalog/MODIS_061_MOD13Q1) · NDVI and EVI\n"
+        "- [MODIS MOD11A2](https://developers.google.com/earth-engine/datasets/catalog/MODIS_061_MOD11A2) · land-surface temperature\n"
         "- [Nigeria state polygons](https://gist.github.com/segebee/ff4a2f75be560462c369) · training land mask and Lagos outline"
     )
 

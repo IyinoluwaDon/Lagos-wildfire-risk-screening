@@ -1,12 +1,17 @@
 project:
   name: Lagos Wildfire Risk Screening
   area: Lagos State, Nigeria
-  grid_degrees: 0.5
+  grid_degrees: 0.25
 data:
   atlas_url: https://zenodo.org/records/14065246/files/GeoTIFF_Qdeg_monthly_summaries.zip
   training_start: 2003
   training_end: 2016
 model:
+  candidates:
+    - RandomForest
+    - HistGradientBoosting
   random_state: 42
   spatial_block_degrees: 2
   validation_folds: 5
+  selection_metric: average_precision
+  shap_sample_size: 1500
