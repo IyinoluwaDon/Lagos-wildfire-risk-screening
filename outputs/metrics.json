@@ -1,0 +1,90 @@
+{
+  "validation": "GroupKFold by 2-degree spatial blocks",
+  "selection_metric": "mean spatial-fold average precision; ties by ROC AUC then Brier score",
+  "best_model": "HistGradientBoosting",
+  "models": {
+    "RandomForest": {
+      "folds": 5,
+      "records": 191976,
+      "roc_auc_mean": 0.9409144078203164,
+      "roc_auc_sd": 0.012164644795864278,
+      "average_precision_mean": 0.7826478003528583,
+      "brier_mean": 0.0921674183589418,
+      "threshold": 0.5,
+      "precision_at_0_5": 0.6185844252446072,
+      "recall_at_0_5": 0.8701472916051833,
+      "f1_at_0_5": 0.7231115669312406,
+      "confusion_matrix": [
+        [
+          134705,
+          19998
+        ],
+        [
+          4840,
+          32433
+        ]
+      ]
+    },
+    "HistGradientBoosting": {
+      "folds": 5,
+      "records": 191976,
+      "roc_auc_mean": 0.9443217555476607,
+      "roc_auc_sd": 0.012910084234837468,
+      "average_precision_mean": 0.8086079898738341,
+      "brier_mean": 0.09165934809380757,
+      "threshold": 0.5,
+      "precision_at_0_5": 0.6132125230757639,
+      "recall_at_0_5": 0.8733667802430714,
+      "f1_at_0_5": 0.7205259022344205,
+      "confusion_matrix": [
+        [
+          134170,
+          20533
+        ],
+        [
+          4720,
+          32553
+        ]
+      ]
+    }
+  },
+  "positive_rate": 0.19415447764303873,
+  "folds": 5,
+  "records": 191976,
+  "roc_auc_mean": 0.9443217555476607,
+  "roc_auc_sd": 0.012910084234837468,
+  "average_precision_mean": 0.8086079898738341,
+  "brier_mean": 0.09165934809380757,
+  "threshold": 0.5,
+  "precision_at_0_5": 0.6132125230757639,
+  "recall_at_0_5": 0.8733667802430714,
+  "f1_at_0_5": 0.7205259022344205,
+  "confusion_matrix": [
+    [
+      134170,
+      20533
+    ],
+    [
+      4720,
+      32553
+    ]
+  ],
+  "explanation_method": "Permutation importance (SHAP unavailable in this runtime)",
+  "features": [
+    "latitude",
+    "longitude",
+    "month_sin",
+    "month_cos",
+    "temp_c",
+    "rain_mm",
+    "rain_lag_mm",
+    "wind_kmh",
+    "humidity",
+    "dryness",
+    "ndvi",
+    "evi",
+    "lst_day_c",
+    "lst_night_c"
+  ],
+  "feature_set": "ERA5, MODIS, location, and seasonal features"
+}

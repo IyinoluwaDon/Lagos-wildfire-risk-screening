@@ -1,33 +1,30 @@
 # Presentation Outline
 
-> This outline and the existing slide deck describe the earlier ERA5-only Random Forest baseline. Regenerate the presentation artifacts after exporting the MODIS monthly table and running the current 0.25° model comparison pipeline.
+The updated deck reflects the full MODIS + ERA5 + Global Fire Atlas model run.
 
 ## Slide 1 — Lagos Wildfire Risk Screening
-SIWES geospatial ML capstone. Identify where historical fire regimes and climate indicate higher vegetation-fire potential around Lagos.
+SIWES geospatial ML capstone; Nigeria-wide HistGradientBoosting model with a Lagos map on the native 0.25° grid.
 
-## Slide 2 — Problem and Lagos context
-Urban expansion meets vegetation and peri-urban open space. This is a regional screening question; operational use requires local incident records.
+## Slide 2 — Study question and scope
+Historical satellite-observed monthly fire occurrence; train and spatially validate across Nigeria, then summarize the Lagos cell scores.
 
-## Slide 3 — Data
-Global Fire Atlas monthly fire-number rasters (2003–2016) and ERA5 reanalysis. Nigeria-wide training provides fire-regime context for Lagos inference; weather is assigned from four regional anchors.
+## Slide 3 — Data inputs
+Global Fire Atlas monthly fire-number rasters (2003–2016), ERA5 reanalysis, MODIS MOD13Q1 NDVI/EVI, MODIS MOD11A2 day/night LST, and open Nigeria state polygons.
 
-## Slide 4 — Data preparation
-Aggregate source pixels to a 0.5-degree grid; align monthly fire labels and weather; engineer seasonality, previous-month rainfall, and dryness.
+## Slide 4 — Model workflow
+Join monthly 0.25° predictors; engineer seasonal and lagged-rain variables; fit HistGradientBoosting; evaluate five GroupKFold folds grouped by 2° blocks; score native cells clipped to Lagos.
 
-## Slide 5 — Model and validation
-Class-weighted Random Forest. GroupKFold by 2-degree spatial blocks to measure transfer to unseen regions.
+## Slide 5 — Spatial validation
+191,976 complete Nigeria grid-month records; ROC AUC 0.944 ± 0.013, average precision 0.809, Brier 0.092; fixed-threshold precision 0.613, recall 0.873, F1 0.721.
 
-## Slide 6 — Results
-Show spatial ROC AUC, average precision, Brier score, and fold variability. Explain why accuracy is misleading for rare events.
+## Slide 6 — Lagos screening map
+Updated full-model map, three native 0.25° cell centers, mean cell scores 0.240, 0.233, and 0.153.
 
-## Slide 7 — Lagos screening map
-Show outputs/maps/lagos_wildfire_risk.png. Interpret colour as relative rank within the map only.
+## Slide 7 — Model explanation
+Full-model monthly Lagos score profile and permutation importance; seasonality, EVI, latitude, and longitude are the leading predictors.
 
-## Slide 8 — Model explanation
-Show outputs/figures/model_explainability.png. Discuss predictor importance and seasonal profile.
+## Slide 8 — Study scope and interpretation
+Summarize historical labels, spatial scale, source fusion, Nigeria geographic-block validation, and the later Lagos VIIRS holdout.
 
-## Slide 9 — Limitations and next steps
-Historical label period ends in 2016; satellite-derived fire proxy; coarse grid. Validate against Lagos fire-service records and add land cover and newer imagery.
-
-## Slide 10 — Demonstration
-Run python run.py and show generated maps, metrics, explanations, model artifact, and logs.
+## Slide 9 — Reproduce and extend
+Run `python run.py`; saved outputs include the model, validation records, map, feature importance, report, and Streamlit app. The later 2017–2024 VIIRS holdout is complete; local incident records are the next evaluation source.

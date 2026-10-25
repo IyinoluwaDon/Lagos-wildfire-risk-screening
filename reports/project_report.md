@@ -51,12 +51,21 @@ The map ranks 3 native 0.25° model cells by mean model score over calendar mont
 | RandomForest | 0.941 | 0.783 | 0.092 |
 | HistGradientBoosting | 0.944 | 0.809 | 0.092 |
 
+## Independent Lagos VIIRS holdout
+
+- Later evaluation period: 2017–2024; 284 complete cell-months across three Lagos cells.
+- NASA VIIRS-positive cell-month rate: 65.14%.
+- ROC AUC: 0.856; average precision: 0.894; Brier score: 0.396.
+- At 0.50 threshold: precision 0.938, recall 0.324.
+This later-period satellite-sensor holdout is reported separately from Global Fire Atlas spatial cross-validation and is not a fire-service incident audit.
+
 ## Sources
 
 - Global Fire Atlas updated record (2002–2024): https://zenodo.org/records/14065246
 - Open-Meteo Historical Weather API (ERA5): https://open-meteo.com/en/docs/historical-weather-api
 - MODIS MOD13Q1 vegetation indices (NDVI/EVI): https://developers.google.com/earth-engine/datasets/catalog/MODIS_061_MOD13Q1
 - MODIS MOD11A2 land surface temperature: https://developers.google.com/earth-engine/datasets/catalog/MODIS_061_MOD11A2
+- NASA VIIRS VNP14A1 active fire: https://developers.google.com/earth-engine/datasets/catalog/NASA_VIIRS_002_VNP14A1
 - GeoBoundaries open boundaries: https://gist.github.com/segebee/ff4a2f75be560462c369
 
 ## Reproducibility

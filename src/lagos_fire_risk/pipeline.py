@@ -369,7 +369,7 @@ def make_outputs(model,df,log):
     fig,axes=plt.subplots(1,2,figsize=(13,5),dpi=180)
     axes[0].plot(seasonal.month,seasonal.risk_probability,color='#e66b32',marker='o',lw=2.4); axes[0].set_xticks(range(1,13)); axes[0].set_xlabel('Month'); axes[0].set_ylabel('Mean model score'); axes[0].set_title('Lagos seasonal profile',weight='bold'); axes[0].grid(alpha=.25)
     importance=pd.read_csv(OUT/'feature_importance.csv').sort_values('importance')
-    axes[1].barh(importance.feature,importance.importance,color='#188b91',alpha=.9); axes[1].set_title(importance.method.iloc[0]+' importance',weight='bold'); axes[1].set_xlabel('Mean absolute contribution' if importance.method.iloc[0]=='SHAP' else 'Average precision score decrease')
+    axes[1].barh(importance.feature,importance.importance,color='#188b91',alpha=.9); method_label='SHAP' if importance.method.iloc[0]=='SHAP' else 'Permutation'; axes[1].set_title(method_label+' importance',weight='bold'); axes[1].set_xlabel('Mean absolute contribution' if importance.method.iloc[0]=='SHAP' else 'Average precision score decrease')
     fig.suptitle('Model explainability',x=.03,ha='left',fontsize=15,weight='bold'); fig.tight_layout(); fig.savefig(FIG/'model_explainability.png',bbox_inches='tight',facecolor='white'); plt.close(fig)
     seasonal.to_csv(PROCESSED/'lagos_seasonal_profile.csv',index=False)
     log.info('Saved %d native 0.25-degree Lagos model cells clipped to state boundary; boundary source: %s.',len(risk),boundary_source)
@@ -402,11 +402,21 @@ def write_report(metrics,df,risk,seasonal,boundary_source):
     lines += ['', '## Model comparison','', '| Candidate | Spatial ROC AUC | Average precision | Brier score |','|---|---:|---:|---:|']
     for model_name, model_result in metrics['models'].items():
         lines.append(f"| {model_name} | {model_result['roc_auc_mean']:.3f} | {model_result['average_precision_mean']:.3f} | {model_result['brier_mean']:.3f} |")
+    viirs_path=OUT/'viirs_validation_metrics.json'
+    if viirs_path.is_file():
+        viirs=json.loads(viirs_path.read_text(encoding='utf-8'))
+        lines += ['', '## Independent Lagos VIIRS holdout','',
+        f"- Later evaluation period: 2017–2024; {viirs['records']:,} complete cell-months across three Lagos cells.",
+        f"- NASA VIIRS-positive cell-month rate: {viirs['positive_rate']:.2%}.",
+        f"- ROC AUC: {viirs['roc_auc']:.3f}; average precision: {viirs['average_precision']:.3f}; Brier score: {viirs['brier_score']:.3f}.",
+        f"- At 0.50 threshold: precision {viirs['precision_at_0_5']:.3f}, recall {viirs['recall_at_0_5']:.3f}.",
+        'This later-period satellite-sensor holdout is reported separately from Global Fire Atlas spatial cross-validation and is not a fire-service incident audit.']
     lines += ['', '## Sources','',
     '- Global Fire Atlas updated record (2002–2024): https://zenodo.org/records/14065246',
     '- Open-Meteo Historical Weather API (ERA5): https://open-meteo.com/en/docs/historical-weather-api',
     '- MODIS MOD13Q1 vegetation indices (NDVI/EVI): https://developers.google.com/earth-engine/datasets/catalog/MODIS_061_MOD13Q1',
     '- MODIS MOD11A2 land surface temperature: https://developers.google.com/earth-engine/datasets/catalog/MODIS_061_MOD11A2',
+    '- NASA VIIRS VNP14A1 active fire: https://developers.google.com/earth-engine/datasets/catalog/NASA_VIIRS_002_VNP14A1',
     '- GeoBoundaries open boundaries: https://gist.github.com/segebee/ff4a2f75be560462c369','',
     '## Reproducibility','',
     'Run python run.py from the project root. Raw inputs, processed tables, model, figures, maps, metrics, report, and logs are stored under this project. The data archive is excluded from Git; its source URL and retrieval logic are recorded in the code and README.','']

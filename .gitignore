@@ -5,10 +5,28 @@ data/processed/*
 !data/processed/.gitkeep
 outputs/*
 !outputs/.gitkeep
+# Compact full-model result snapshot used by the read-only dashboard.
+!outputs/metrics.json
+!outputs/model_comparison.csv
+!outputs/feature_importance.csv
+!outputs/spatial_validation_folds.csv
+!outputs/viirs_validation_metrics.json
+!outputs/wildfire_model.joblib
+!outputs/maps/
+!outputs/maps/lagos_wildfire_risk.png
+!outputs/figures/
+outputs/figures/*
+!outputs/figures/model_explainability.png
+# Compact Lagos result tables; large source and training tables remain ignored.
+!data/processed/lagos_risk_grid.csv
+!data/processed/lagos_risk_grid.geojson
+!data/processed/lagos_seasonal_profile.csv
+!data/processed/lagos_viirs_validation.csv
 .venv/
 __pycache__/
 *.py[cod]
 
 presentation_build/
 .codex-finalizer/
+.codex-build/
 .streamlit/secrets.toml

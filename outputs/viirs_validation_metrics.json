@@ -1,0 +1,25 @@
+{
+  "evaluation": "Lagos 2017\u20132024 later-period, independent-sensor holdout",
+  "training_labels": "Global Fire Atlas 2003\u20132016",
+  "evaluation_labels": "NASA VIIRS VNP14A1 nominal/high confidence active fire detections (FireMask >= 8)",
+  "model": "HistGradientBoosting",
+  "records": 284,
+  "positive_records": 185,
+  "positive_rate": 0.6514084507042254,
+  "roc_auc": 0.8563472563472565,
+  "average_precision": 0.8944812650267525,
+  "brier_score": 0.3961965728439224,
+  "precision_at_0_5": 0.9375,
+  "recall_at_0_5": 0.32432432432432434,
+  "confusion_matrix_at_0_5": [
+    [
+      95,
+      4
+    ],
+    [
+      125,
+      60
+    ]
+  ],
+  "interpretation": "This compares future-year model scores with an independent satellite sensor in three Lagos grid cells; it is a local satellite-proxy evaluation, not a fire-service incident audit."
+}

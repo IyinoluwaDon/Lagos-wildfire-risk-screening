@@ -45,6 +45,7 @@ def format_metric(value: float | None, digits: int = 3) -> str:
 
 
 metrics = read_json(OUTPUTS / "metrics.json")
+viirs_metrics = read_json(OUTPUTS / "viirs_validation_metrics.json")
 risk_grid = read_csv(PROCESSED / "lagos_risk_grid.csv")
 seasonal = read_csv(PROCESSED / "lagos_seasonal_profile.csv")
 importance = read_csv(OUTPUTS / "feature_importance.csv")
@@ -58,6 +59,7 @@ with st.sidebar:
     st.markdown("**Study period**  \n2003–2016")
     st.markdown("**Training grid**  \n0.25° across Nigeria")
     st.markdown("**Validation**  \n5 spatial folds · 2° blocks")
+    st.markdown("**Independent holdout**  \n2017–2024 Lagos VIIRS")
     st.markdown("---")
     st.caption("This dashboard reads saved project outputs. It does not run the model or fetch data.")
     if st.button("Refresh saved outputs", width="stretch"):
@@ -144,6 +146,23 @@ with overview:
             "- Precision, recall, and F1 use a fixed 0.50 threshold and pooled out-of-fold predictions."
         )
 
+    if viirs_metrics is not None:
+        st.subheader("Independent Lagos holdout · 2017–2024")
+        st.caption(
+            "The frozen model was applied to later-year Lagos predictors and compared "
+            "with NASA VIIRS active-fire detections. This sensor/time holdout is separate "
+            "from the Nigeria spatial cross-validation above."
+        )
+        v1, v2, v3, v4 = st.columns(4)
+        v1.metric("VIIRS ROC AUC", format_metric(viirs_metrics.get("roc_auc")), border=True)
+        v2.metric("VIIRS average precision", format_metric(viirs_metrics.get("average_precision")), border=True)
+        v3.metric("VIIRS Brier score", format_metric(viirs_metrics.get("brier_score")), border=True)
+        v4.metric("Fire-positive cell-months", f"{viirs_metrics.get('positive_rate', 0):.1%}", border=True)
+        st.caption(
+            f"{viirs_metrics.get('records', 0):,} complete monthly records across three Lagos grid cells. "
+            "The target is a VIIRS satellite detection proxy, not a fire-service incident audit."
+        )
+
 with map_tab:
     st.subheader("Historical Lagos screening map")
     map_path = OUTPUTS / "maps" / "lagos_wildfire_risk.png"
@@ -205,7 +224,8 @@ with explanation_tab:
     st.subheader("Model predictor importance")
     if importance is not None and not importance.empty:
         importance_method = str(importance["method"].iloc[0])
-        metric_label = "Mean absolute SHAP contribution" if importance_method == "SHAP" else "Average precision score decrease"
+        method_label = "SHAP" if importance_method == "SHAP" else "Permutation"
+        metric_label = "Mean absolute SHAP contribution" if method_label == "SHAP" else "Average precision score decrease"
         imp_view = importance.sort_values("importance", ascending=True).tail(14).copy()
         imp_view = imp_view.set_index("feature")[["importance"]].rename(columns={"importance": metric_label})
         st.bar_chart(
@@ -213,17 +233,17 @@ with explanation_tab:
             x_label=metric_label,
             y_label="Feature",
             horizontal=True,
-            alt=f"{importance_method} feature importance for the selected model.",
+            alt=f"{method_label} feature importance for the selected model.",
         )
         st.dataframe(
             importance.sort_values("importance", ascending=False),
             hide_index=True,
             width="stretch",
-            alt=f"{importance_method} feature importance by predictor.",
+            alt=f"{method_label} feature importance by predictor.",
         )
     else:
         st.info("The saved importance table is not available yet.")
-    st.caption(f"{importance_method if importance is not None and not importance.empty else 'Model importance'} describes fitted model behavior, not causal effects.")
+    st.caption(f"{method_label if importance is not None and not importance.empty else 'Model importance'} describes fitted model behavior, not causal effects.")
 
     if folds is not None and not folds.empty:
         st.subheader("Fold-by-fold validation")
@@ -244,14 +264,17 @@ with files_tab:
         ("Spatial validation folds", "outputs/spatial_validation_folds.csv"),
         ("Model comparison", "outputs/model_comparison.csv"),
         ("Model feature importance", "outputs/feature_importance.csv"),
+        ("Independent VIIRS metrics", "outputs/viirs_validation_metrics.json"),
+        ("Independent VIIRS cell-month results", "data/processed/lagos_viirs_validation.csv"),
         ("Training features", "data/processed/training_features.csv"),
         ("Lagos grid scores", "data/processed/lagos_risk_grid.csv"),
         ("Lagos clipped grid GeoJSON", "data/processed/lagos_risk_grid.geojson"),
         ("MODIS monthly feature export", "data/processed/modis_monthly.csv"),
         ("Seasonal profile", "data/processed/lagos_seasonal_profile.csv"),
-        ("Presentation", "presentation/Lagos_Wildfire_Risk_Screening.pptx"),
+        ("Updated presentation", "presentation/Lagos_Wildfire_Risk_Screening_Updated.pptx"),
         ("Project knowledge base", "PROJECT_KNOWLEDGE_BASE.md"),
         ("Project report", "reports/project_report.md"),
+        ("VIIRS validation report", "reports/viirs_validation.md"),
     ]
     status = pd.DataFrame(
         [
@@ -283,6 +306,7 @@ with files_tab:
         "- [Open-Meteo Historical Weather API](https://open-meteo.com/en/docs/historical-weather-api) · ERA5 reanalysis\n"
         "- [MODIS MOD13Q1](https://developers.google.com/earth-engine/datasets/catalog/MODIS_061_MOD13Q1) · NDVI and EVI\n"
         "- [MODIS MOD11A2](https://developers.google.com/earth-engine/datasets/catalog/MODIS_061_MOD11A2) · land-surface temperature\n"
+        "- [NASA VIIRS VNP14A1](https://developers.google.com/earth-engine/datasets/catalog/NASA_VIIRS_002_VNP14A1) · independent active-fire holdout, 2017–2024\n"
         "- [Nigeria state polygons](https://gist.github.com/segebee/ff4a2f75be560462c369) · training land mask and Lagos outline"
     )
 

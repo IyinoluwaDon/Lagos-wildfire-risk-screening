@@ -13,7 +13,7 @@ This document is the detailed reference for explaining, reporting, and presentin
 
 The full source pipeline combines real Global Fire Atlas fire observations, monthly MODIS vegetation and thermal summaries, and ERA5 weather. It compares Random Forest and HistGradientBoosting with geographically separated folds, selects by spatial-fold average precision, explains the selected model, and clips native-grid model cells to Lagos State. Training remains national so the model has a larger set of historical fire examples; the mapped output is restricted to Lagos.
 
-**Current implementation status:** the full multi-source model has been trained on 191,976 complete Nigeria grid-month records from Global Fire Atlas fire labels, ERA5 weather, and monthly MODIS NDVI, EVI, and day/night land-surface temperature. MODIS summaries were computed in Earth Engine from real satellite products and exported as a feature table. Five-fold spatial validation selected HistGradientBoosting (ROC AUC 0.944, average precision 0.809, Brier score 0.092). Its Lagos output covers three native grid-cell centers. The presentation deck and slide previews are still from an earlier run and have not been regenerated from this model.
+**Current implementation status:** the full multi-source model has been trained on 191,976 complete Nigeria grid-month records from Global Fire Atlas fire labels, ERA5 weather, and monthly MODIS NDVI, EVI, and day/night land-surface temperature. Five-fold spatial validation selected HistGradientBoosting (ROC AUC 0.944, average precision 0.809, Brier score 0.092). A separate 2017–2024 Lagos holdout applies the frozen model to 284 cell-month rows and compares it with NASA VIIRS VNP14A1 detections (ROC AUC 0.856, average precision 0.894, Brier score 0.396; VIIRS-positive rate 65.1%). Lagos output covers three native grid-cell centers. The updated presentation, slide previews, reports, and Streamlit app show both evaluation tracks separately. Fire-service incident comparison remains an additional evaluation stage.
 
 The phrase “risk screening” is used as a project label. The map is not an operational fire warning, a forecast, a confirmed incident map, or a property-level risk assessment. Its scores are model outputs based on coarse historical inputs.
 
@@ -215,6 +215,8 @@ The MODIS export requires an Earth Engine-enabled Google Cloud project and Googl
 | `data/processed/` | Weather cache, MODIS CSV, model input table, Lagos grid scores/GeoJSON, and monthly score profile. |
 | `outputs/metrics.json` | Machine-readable validation summary. |
 | `outputs/spatial_validation_folds.csv` | Per-fold validation metrics and sample counts. |
+| `outputs/viirs_validation_metrics.json` | Lagos-only 2017–2024 later-period evaluation against VIIRS detections. |
+| `data/processed/lagos_viirs_validation.csv` | Cell-month predictors, model scores, and VIIRS target for the independent holdout. |
 | `outputs/model_comparison.csv` | Spatial validation summary for candidate models. |
 | `outputs/feature_importance.csv` | SHAP or explicitly labelled permutation importance for the selected model. |
 | `outputs/wildfire_model.joblib` | Final fitted classifier and metadata. |
@@ -222,37 +224,36 @@ The MODIS export requires an Earth Engine-enabled Google Cloud project and Googl
 | `outputs/figures/model_explainability.png` | Lagos seasonal score profile and selected-model feature-importance summary. |
 | `data/processed/lagos_risk_grid.geojson` | Model cell polygons intersected with the Lagos State boundary. |
 | `outputs/logs/pipeline.log` | Timestamped run log. |
-| `outputs/presentation_previews/` | Nine PNG slide previews. |
+| `scripts/validate_lagos_viirs.py` | Remote Earth Engine aggregation and evaluation of the frozen model against later VIIRS detections. |
+| `reports/viirs_validation.md` | Design and results for the independent Lagos satellite holdout. |
+| `presentation/previews/` | Nine PNG slide previews from the current full-model deck. |
 | `reports/project_report.md` | Concise written project report. |
-| `reports/presentation_outline.md` | Initial outline for presenting the project. |
-| `presentation/Lagos_Wildfire_Risk_Screening.pptx` | Nine-slide presentation deck. |
+| `reports/presentation_outline.md` | Current outline for the nine-slide full-model presentation. |
+| `presentation/Lagos_Wildfire_Risk_Screening_Updated.pptx` | Current nine-slide MODIS + ERA5 model presentation. |
 
-Raw data, processed data, and generated `outputs/` are stored locally in the project folder and ignored by Git to avoid putting large generated files into source history. The README, source, requirements, report, outline, and presentation are available to Git.
+Large raw inputs, the full training table, MODIS export, and pipeline logs remain local and ignored. The compact fitted model, validation results, Lagos map and summaries are tracked so the Streamlit dashboard can render from a fresh clone. The README, source, requirements, reports, presentation, and slide previews are also tracked.
 
-## 12. Limitations to state clearly in a report or presentation
+## 12. Evaluation context
 
-1. **Historical period:** fire labels end in 2016; this project does not use current fire detections.
-2. **Proxy target:** satellite-derived fire-number values are not a complete, locally verified incident register.
-3. **Grid scale:** fire labels use the Global Fire Atlas native 0.25-degree grid; each cell is a regional model unit.
-4. **Lagos display:** scores are shown only for native grid-cell centers inside the Lagos boundary, and cell polygons are clipped to that boundary.
-5. **Climate and satellite sampling:** the current model uses four regional ERA5 anchors and MODIS vegetation and thermal summaries aggregated to the model grid.
-6. **Geographic transfer:** Nigeria spatial cross-validation does not directly validate the Lagos map or demonstrate local calibration.
-7. **No temporal holdout:** the saved evaluation does not test whether a model trained on earlier years transfers to later years.
-8. **Model explanation:** SHAP values describe fitted model behavior and are not causal estimates.
-9. **No causal claim:** predictor importance and seasonal scores describe model associations, not causes.
-10. **No operational use:** do not use these outputs for dispatch, evacuation, insurance, property decisions, or public alerts without updated inputs, local validation, calibration, and expert review.
+- The model period is 2003–2016, and its label is monthly satellite-observed fire occurrence from Global Fire Atlas.
+- The native 0.25-degree cell is the model unit. Lagos output covers three in-boundary cell centers; each displayed polygon is clipped to the Lagos boundary.
+- Predictors combine ERA5 weather with MODIS NDVI/EVI and daytime/nighttime surface temperature.
+- The primary validation uses five geographic holdout folds across Nigeria and the Global Fire Atlas fire proxy: ROC AUC 0.944, average precision 0.809, and Brier 0.092.
+- A separate later-period Lagos holdout applies the frozen classifier to 2017–2024 predictors and VIIRS detections: 284 complete cell-months, ROC AUC 0.856, average precision 0.894, and Brier 0.396.
+- The VIIRS evaluation target is satellite detection within the three model cells. It is distinct from geocoded local fire-service incidents.
+- Predictor importance and the seasonal profile summarize fitted model behavior; they are not causal estimates.
 
 ## 13. Recommended next steps
 
-1. Obtain geocoded fire incident records from the Lagos State Fire and Rescue Service, with suitable permission and metadata, and document their time coverage and completeness.
-3. Add a time-based evaluation that tests later years while preserving spatial separation where sample sizes allow.
-4. Add verified perimeters and local land-cover, fuel, topography, roads, and settlement context when suitable data are available.
-5. Calibrate model scores on independent Lagos incident records before describing them as probabilities.
-6. Record exact dependency versions, source retrieval dates, data checksums, and model run identifiers for a formal research release.
+1. Obtain geocoded fire incident records from the Lagos State Fire and Rescue Service, with suitable permission and metadata.
+2. Extend later-year evaluation while preserving spatial separation where sample sizes allow.
+3. Add verified perimeters and local land-cover, fuel, topography, roads, and settlement context when suitable data are available.
+4. Calibrate model scores on independent Lagos incident records before describing them as probabilities.
+5. Record exact dependency versions, source retrieval dates, data checksums, and model run identifiers for a formal research release.
 
 ## 14. Suggested factual narrative for later reports or slides
 
-> The current model trains HistGradientBoosting on Global Fire Atlas monthly fire labels, ERA5 weather, and MODIS NDVI, EVI, and day/night land-surface temperature for Nigeria's native 0.25-degree grid. Five spatial folds selected it over Random Forest (ROC AUC 0.944, average precision 0.809, Brier score 0.092). The mapped Lagos output contains three native grid cells. Cite the current `outputs/metrics.json` and distinguish national spatial validation from local Lagos validation.
+> The current model trains HistGradientBoosting on Global Fire Atlas monthly fire labels, ERA5 weather, and MODIS NDVI, EVI, and day/night land-surface temperature for Nigeria's native 0.25-degree grid. Five spatial folds selected it over Random Forest (ROC AUC 0.944, average precision 0.809, Brier score 0.092). A frozen-model Lagos holdout against NASA VIIRS for 2017–2024 scored ROC AUC 0.856, average precision 0.894, and Brier 0.396 on 284 complete cell-months. Cite `outputs/metrics.json` and `outputs/viirs_validation_metrics.json` separately.
 
 This narrative can be shortened for an abstract or adapted for slides, but keep the scale and validation limits attached to the results.
 
